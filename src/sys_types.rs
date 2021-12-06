@@ -11,7 +11,7 @@ pub(crate) struct SourceInfo {
 #[repr(C)]
 pub(crate) struct Error {
     pub(crate) extra_data: *const c_void,
-    pub(crate) source_info: SourceInfo,
+    pub(crate) source_info: crate::sys_types::SourceInfo,
     pub(crate) error_code: u16,
     pub(crate) error_buffer_size: u16,
     pub(crate) reason: c_char
@@ -20,20 +20,20 @@ pub(crate) struct Error {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub(crate) struct CmdPart {
-    text: *const c_char,
-    is_string: bool
+    pub(crate) text: *const c_char,
+    pub(crate) is_string: bool
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub(crate) struct Command {
-    prev: *const Command,
-    next: *const Command,
+    pub(crate) prev: *const crate::sys_types::Command,
+    pub(crate) next: *const crate::sys_types::Command,
     
-    extra_data: *const c_void,
-    resolve_cache: *const c_void,
-    source_info: SourceInfo,
-    command: CmdPart
+    pub(crate) extra_data: *const c_void,
+    pub(crate) resolve_cache: *const c_void,
+    pub(crate) source_info: crate::sys_types::SourceInfo,
+    pub(crate) command: crate::sys_types::CmdPart
 }
 
 #[repr(C)]
