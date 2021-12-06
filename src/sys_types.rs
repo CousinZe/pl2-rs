@@ -32,11 +32,12 @@ pub struct Command {
     
     pub(crate) extra_data: *const c_void,
     pub(crate) resolve_cache: *const c_void,
-    pub(crate) source_info: SourceInfo,
+    pub source_info: SourceInfo,
     pub(crate) command: CmdPart
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Program {
     pub(crate) commands: *const Command
 }

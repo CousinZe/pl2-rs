@@ -318,19 +318,8 @@ impl Drop for Program {
 }
 
 #[inline(always)]
-pub fn ensure_pcall_command_stub_interface(
-    _f: for<'a> fn(&'a Program, *mut (), Command<'a>) 
-            -> Result<Option<Command<'a>>, Box<dyn std::error::Error>>
-) {}
-
-#[inline(always)]
 pub fn ensure_pcall_command_router_stub_interface(
     _f: for<'a> fn(Command<'a>) -> bool
-) {}
-
-#[inline(always)]
-pub fn ensure_init_stub_interface(
-    _f: fn() -> Result<*mut (), Box<dyn std::error::Error>> 
 ) {}
 
 #[macro_export] macro_rules! make_pcall_command_stub {
@@ -340,33 +329,33 @@ pub fn ensure_init_stub_interface(
             ctx: *mut std::ffi::c_void,
             command: *const $crate::sys_types::Command,
             error: *mut $crate::sys_types::Error
-        ) {
-            $crate::ensure_pcall_command_stub_interface($fn_name);
-            let program = $crate::Program::new_unchecked(program);
+        ) -> *const $crate::sys::Command {
+            let program = $crate::Program::new_unchecked(*program);
             let r = $fn_name(
-                program,
-                ctx as _,
+                &program,
+                &mut *(ctx as *mut _),
                 $crate::Command::new_unchecked(command)
             );
-            std::mem::forget(program);
-            match r {
+            let result = match r {
                 Ok(Some(command)) => command.into_inner(),
                 Ok(None) => std::ptr::null(),
                 Err(e) => {
                     let mut reason = e.to_string();
                     reason.push('\x00');
-                    let source_info = command.source_info;
+                    let source_info = (*command).source_info;
 
                     $crate::sys::pl2b_errPrintf(
                         error,
-                        -1,
+                        200,
                         source_info,
                         std::ptr::null(),
                         reason.as_str().as_ptr() as _
                     );
                     std::ptr::null()
                 }
-            }
+            };
+            std::mem::forget(program);
+            result
         }
     }
 }
@@ -384,21 +373,23 @@ pub fn ensure_init_stub_interface(
 
 #[macro_export] macro_rules! make_init_stub {
     ($fn_name:ident, $output_name:ident) => {
-        pub(crate) unsafe extern "C" fn $output_name(error: *mut Error) -> *mut c_void {
+        pub(crate) unsafe extern "C" fn $output_name(
+            error: *mut $crate::sys::Error
+        ) -> *mut std::ffi::c_void {
             match $fn_name() {
-                Ok(data) => Box::into_raw(Box::new(data)) as _,
+                Ok(data) => Box::into_raw(Box::new(data)) as *mut _,
                 Err(e) => {
                     let mut reason = e.to_string();
                     reason.push('\x00');
 
                     $crate::sys::pl2b_errPrintf(
                         error,
-                        -1,
+                        200,
                         $crate::SourceInfo::unknown().into_inner(),
                         std::ptr::null(),
                         reason.as_str().as_ptr() as _
                     );
-                    std::ptr::null()
+                    std::ptr::null_mut()
                 }
             }
         }
@@ -407,8 +398,8 @@ pub fn ensure_init_stub_interface(
 
 #[macro_export] macro_rules! make_atexit_stub {
     ($fn_name:ident, $output_name:ident) => {
-        pub(crate) unsafe extern "C" fn $output_name(context: *mut c_void) {
-            $fn_name(Box::into_inner(Box::from_raw(context)))
+        pub(crate) unsafe extern "C" fn $output_name(context: *mut std::ffi::c_void) {
+            $fn_name(*Box::from_raw(context as *mut _))
         }
     }
 }
