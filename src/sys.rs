@@ -19,12 +19,13 @@ extern "C" {
     pub(crate) fn pl2b_argsLen(cmd: *const Command) -> u16;
     pub(crate) fn pl2b_initProgram(program: *mut Program);
     pub(crate) fn pl2b_parse(
-        source: *const c_char,
+        source: *mut c_char,
         parse_bufsiz: u16,
         error: *mut Error
     ) -> Program;
     pub(crate) fn pl2b_dropProgram(program: *mut Program);
     pub(crate) fn pl2b_debugPrintProgram(program: *const Program);
     pub(crate) fn pl2b_parseSemVer(src: *const c_char, err: *mut Error);
+    pub(crate) fn pl2b_run(program: *const Program, err: *mut Error);
 }
 

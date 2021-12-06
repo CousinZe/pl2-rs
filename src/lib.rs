@@ -14,6 +14,10 @@ unsafe fn cstr2str<'a>(src: *const c_char) -> &'a str {
     CStr::from_ptr(src).to_str().unwrap()
 }
 
+pub fn get_locale_name() -> &'static str {
+    unsafe { cstr2str(pl2b_getLocaleName()) }
+}
+
 #[derive(Clone, Copy)]
 pub struct SourceInfo<'p> {
     inner: crate::sys::SourceInfo,
@@ -21,7 +25,7 @@ pub struct SourceInfo<'p> {
 }
 
 impl<'p> SourceInfo<'p> {
-    fn new(inner: crate::sys::SourceInfo) -> Self {
+     fn new(inner: crate::sys::SourceInfo) -> Self {
         Self {
             inner,
             _phantom: PhantomData::default()
@@ -47,14 +51,14 @@ pub struct Error<'p> {
 }
 
 impl<'p> Error<'p> {
-    fn new(inner: *mut crate::sys::Error) -> Self {
+    pub unsafe fn new_unchecked(inner: *mut crate::sys::Error) -> Self {
         Self {
             inner,
             _phantom: PhantomData::default()
         }
     }
 
-    unsafe fn into_inner(self) -> *mut crate::sys::Error {
+    pub unsafe fn into_inner(self) -> *mut crate::sys::Error {
         self.inner
     }
 }
@@ -118,7 +122,7 @@ pub struct CmdPart<'p> {
 
 impl<'p> CmdPart<'p> {
     pub fn is_empty(&self) -> bool {
-        unsafe { self.inner.text == null() }
+        self.inner.text == null()
     }
 
     pub fn is_string(&self) -> bool {
@@ -155,21 +159,26 @@ pub struct Command<'p> {
 }
 
 impl<'p> Command<'p> {
+    pub unsafe fn new_unchecked(inner: *const crate::sys_types::Command) -> Self {
+        Self {
+            inner,
+            cached_size: Cell::new(None),
+            _phantom: PhantomData::default()
+        }
+    }
+
+    pub unsafe fn into_inner(self) -> *const crate::sys_types::Command {
+        self.inner
+    }
+
     pub fn size(&self) -> usize {
         if let Some(size) = self.cached_size.get() {
             return size;
         }
         
-        let mut counter = 0;
-        unsafe {
-            let mut iter: *const crate::sys_types::CmdPart = addr_of!((*self.inner).command);
-            while (*iter).text != null() {
-                counter += 1;
-                iter = iter.add(1);
-            }
-        }
-        self.cached_size.set(Some(counter));
-        counter
+        let size = unsafe { pl2b_argsLen(self.inner) };
+        self.cached_size.set(Some(size as usize));
+        size as usize
     }
 
     pub fn part(&self, idx: usize) -> CmdPart<'p> {
@@ -224,5 +233,107 @@ impl<'p> Display for Command<'p> {
     }
 }
 
+pub struct Program {
+    #[allow(unused)]
+    buf: String,
+    inner: crate::sys_types::Program
+}
 
+impl Program {
+    pub unsafe fn new_unchecked(inner: crate::sys_types::Program) -> Self {
+        Self {
+            buf: "".into(),
+            inner
+        }
+    }
+
+    pub fn parse(input: impl ToString) -> Result<Self, Error<'static>> {
+        let mut buf = input.to_string();
+        buf.push('\x00');
+        
+        unsafe {
+            let ptr = buf.as_mut_str().as_mut_ptr();
+            let err = pl2b_errorBuffer(512);
+            let inner = pl2b_parse(ptr as *mut c_char, 64, err);
+
+            if pl2b_isError(err) {
+                Err(Error::new_unchecked(err))
+            } else {
+                pl2b_dropError(err);
+                Ok(Self { buf, inner })
+            }
+        }
+    }
+
+    pub fn run(&self) -> Result<(), Error> {
+        unsafe {
+            let err = pl2b_errorBuffer(512);
+            pl2b_run(&self.inner as *const _, err);
+            if pl2b_isError(err) {
+                Err(Error::new_unchecked(err))
+            } else {
+                pl2b_dropError(err);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn debug_print(&self) {
+        unsafe {
+            pl2b_debugPrintProgram(&self.inner);
+        }
+    }
+}
+
+impl Drop for Program {
+    fn drop(&mut self) {
+        unsafe {
+            pl2b_dropProgram(&mut self.inner);
+        }
+    }
+}
+
+#[inline(always)]
+pub fn ensure_pcall_command_stub_interface(
+    _f: for<'a> fn(&'a Program, *mut (), Command<'a>) -> Result<Option<Command<'a>>, Box<dyn std::error::Error>>
+) {}
+
+#[macro_export] macro_rules! make_pcall_command_stub {
+    ($fn_name:ident, $output_name:ident) => {
+        pub(crate) unsafe extern "C" fn $output_name(
+            program: *mut $crate::sys_types::Program,
+            ctx: *mut std::ffi::c_void,
+            command: *const $crate::sys_types::Command,
+            error: *mut $crate::sys_types::Error
+        ) {
+            $crate::ensure_pcall_command_stub_interface($fn_name);
+            let program = $crate::Program::new_unchecked(program);
+            let r = $fn_name(
+                program,
+                ctx as _,
+                $crate::Command::new_unchecked(command)
+            );
+            std::mem::forget(program);
+            match r {
+                Ok(Some(command)) => command.into_inner(),
+                Ok(None) => std::ptr::null(),
+                Err(e) => {
+                    let code = -204;
+                    let mut reason = e.to_string();
+                    reason.push('\x00');
+                    let source_info = command.source_info;
+
+                    pl2b_errPrintf(
+                        error,
+                        -204,
+                        source_info,
+                        null(),
+                        reason.as_str().as_ptr()
+                    );
+                    std::ptr::null()
+                }
+            }
+        }
+    }
+}
 
