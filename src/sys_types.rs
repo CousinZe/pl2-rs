@@ -69,8 +69,8 @@ pub type CmdCleanupStub = unsafe extern "C" fn(cmd_extra: *mut c_void);
 #[repr(C)]
 pub struct PCallCommand {
     pub(crate) cmd_name: *const c_char,
-    pub router_stub: CommandRouterStub,
-    pub stub: PCallCommandStub,
+    pub router_stub: Option<CommandRouterStub>,
+    pub stub: Option<PCallCommandStub>,
     pub deprecated: bool,
     pub removed: bool
 }
@@ -80,11 +80,11 @@ pub struct Language {
     pub(crate) lang_name: *const c_char,
     pub(crate) lang_info: *const c_char,
 
-    pub(crate) init: InitStub,
-    pub(crate) atexit: AtExitStub,
-    pub(crate) cmd_cleanup: CmdCleanupStub,
+    pub(crate) init: Option<InitStub>,
+    pub(crate) atexit: Option<AtExitStub>,
+    pub(crate) cmd_cleanup: Option<CmdCleanupStub>,
     pub(crate) pcall_cmds: *const PCallCommand,
-    pub(crate) fallback: *const PCallCommandStub
+    pub(crate) fallback: Option<PCallCommandStub>
 }
 
 pub type LoadLanguage = unsafe extern "C" fn(semver: SemVer, error: * mut Error);

@@ -25,11 +25,25 @@ pub struct SourceInfo<'p> {
 }
 
 impl<'p> SourceInfo<'p> {
-     fn new(inner: crate::sys::SourceInfo) -> Self {
+    pub unsafe fn new_unchecked(inner: crate::sys::SourceInfo) -> Self {
         Self {
             inner,
             _phantom: PhantomData::default()
         }
+    }
+
+    pub fn unknown() -> Self {
+        Self {
+            inner: crate::sys::SourceInfo {
+                file_name: "".as_ptr() as _,
+                line: 0
+            },
+            _phantom: PhantomData::default()
+        }
+    }
+
+    pub unsafe fn into_inner(self) -> crate::sys::SourceInfo {
+        self.inner
     }
 }
 
@@ -66,7 +80,7 @@ impl<'p> Error<'p> {
 impl<'p> Error<'p> {
     pub fn source_info(&self) -> SourceInfo<'p> {
         unsafe {
-            SourceInfo::new((*self.inner).source_info)
+            SourceInfo::new_unchecked((*self.inner).source_info)
         }
     }
 
@@ -283,6 +297,16 @@ impl Program {
             pl2b_debugPrintProgram(&self.inner);
         }
     }
+
+    pub fn first_command<'a>(&'a self) -> Option<Command<'a>> {
+        unsafe {
+            if self.inner.commands == null() {
+                None
+            } else {
+                Some(Command::new_unchecked(self.inner.commands))
+            }
+        }
+    }
 }
 
 impl Drop for Program {
@@ -295,7 +319,18 @@ impl Drop for Program {
 
 #[inline(always)]
 pub fn ensure_pcall_command_stub_interface(
-    _f: for<'a> fn(&'a Program, *mut (), Command<'a>) -> Result<Option<Command<'a>>, Box<dyn std::error::Error>>
+    _f: for<'a> fn(&'a Program, *mut (), Command<'a>) 
+            -> Result<Option<Command<'a>>, Box<dyn std::error::Error>>
+) {}
+
+#[inline(always)]
+pub fn ensure_pcall_command_router_stub_interface(
+    _f: for<'a> fn(Command<'a>) -> bool
+) {}
+
+#[inline(always)]
+pub fn ensure_init_stub_interface(
+    _f: fn() -> Result<*mut (), Box<dyn std::error::Error>> 
 ) {}
 
 #[macro_export] macro_rules! make_pcall_command_stub {
@@ -318,22 +353,123 @@ pub fn ensure_pcall_command_stub_interface(
                 Ok(Some(command)) => command.into_inner(),
                 Ok(None) => std::ptr::null(),
                 Err(e) => {
-                    let code = -204;
                     let mut reason = e.to_string();
                     reason.push('\x00');
                     let source_info = command.source_info;
 
-                    pl2b_errPrintf(
+                    $crate::sys::pl2b_errPrintf(
                         error,
-                        -204,
+                        -1,
                         source_info,
-                        null(),
-                        reason.as_str().as_ptr()
+                        std::ptr::null(),
+                        reason.as_str().as_ptr() as _
                     );
                     std::ptr::null()
                 }
             }
         }
+    }
+}
+
+#[macro_export] macro_rules! make_pcall_router_stub {
+    ($fn_name:ident, $output_name:ident) => {
+        pub(crate) unsafe extern "C" fn $output_name(
+            command: *const $crate::sys_types::Command
+        ) -> bool {
+            $crate::ensure_pcall_command_router_stub_interface($fn_name);
+            $fn_name($crate::Command::new_unchecked(command))
+        }
+    }
+}
+
+#[macro_export] macro_rules! make_init_stub {
+    ($fn_name:ident, $output_name:ident) => {
+        pub(crate) unsafe extern "C" fn $output_name(error: *mut Error) -> *mut c_void {
+            match $fn_name() {
+                Ok(data) => Box::into_raw(Box::new(data)) as _,
+                Err(e) => {
+                    let mut reason = e.to_string();
+                    reason.push('\x00');
+
+                    $crate::sys::pl2b_errPrintf(
+                        error,
+                        -1,
+                        $crate::SourceInfo::unknown().into_inner(),
+                        std::ptr::null(),
+                        reason.as_str().as_ptr() as _
+                    );
+                    std::ptr::null()
+                }
+            }
+        }
+    }
+}
+
+#[macro_export] macro_rules! make_atexit_stub {
+    ($fn_name:ident, $output_name:ident) => {
+        pub(crate) unsafe extern "C" fn $output_name(context: *mut c_void) {
+            $fn_name(Box::into_inner(Box::from_raw(context)))
+        }
+    }
+}
+
+pub fn make_pcall_cmd(
+    cmd_name: &'static str,
+    stub: Option<crate::sys::PCallCommandStub>,
+    deprecated: bool,
+    removed: bool
+) -> crate::sys::PCallCommand {
+    crate::sys::PCallCommand {
+        cmd_name: cmd_name.as_ptr() as _,
+        router_stub: None,
+        stub,
+        deprecated,
+        removed
+    }
+}
+
+pub fn make_pcall_cmd_custom_router(
+    router_stub: Option<crate::sys::CommandRouterStub>,
+    stub: Option<crate::sys::PCallCommandStub>,
+    deprecated: bool,
+    removed: bool
+) -> crate::sys::PCallCommand {
+    crate::sys::PCallCommand {
+        cmd_name: null(),
+        router_stub,
+        stub,
+        deprecated,
+        removed
+    }
+}
+
+pub fn make_empty_pcall_cmd() -> crate::sys::PCallCommand {
+    crate::sys::PCallCommand {
+        cmd_name: std::ptr::null(),
+        router_stub: None,
+        stub: None,
+        deprecated: false,
+        removed: false
+    }
+}
+
+pub fn make_language(
+    lang_name: Option<&'static str>,
+    lang_info: Option<&'static str>,
+    
+    init: Option<crate::sys::InitStub>,
+    atexit: Option<crate::sys::AtExitStub>,
+    pcall_cmds: &'static [crate::sys::PCallCommand],
+    fallback: Option<crate::sys::PCallCommandStub>
+) -> crate::sys::Language {
+    crate::sys::Language {
+        lang_name: if let Some(name) = lang_name { name.as_ptr() as _ } else { null() },
+        lang_info: if let Some(info) = lang_info { info.as_ptr() as _ } else { null() },
+        init,
+        atexit,
+        cmd_cleanup: None,
+        pcall_cmds: pcall_cmds.as_ptr(),
+        fallback
     }
 }
 
