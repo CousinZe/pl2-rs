@@ -1,25 +1,12 @@
 use std::ffi::c_void;
 use std::os::raw::c_char;
 
-#[repr(C)]
-pub struct SourceInfo {
-    file_name: *const c_char,
-    line: u16
-}
-
-#[repr(C)]
-pub struct Error {
-    extra_data: *const c_void,
-    source_info: SourceInfo,
-    error_code: u16,
-    error_buffer_size: u16,
-    reason: c_char
-}
+pub use crate::sys_types::*;
 
 extern "C" {
-    fn pl2b_getLocaleName() -> *const c_char;
-    fn pl2b_errorBuffer(buffer_size: u16) -> *mut Error;
-    fn pl2b_errPrintf(
+    pub(crate) fn pl2b_getLocaleName() -> *const c_char;
+    pub(crate) fn pl2b_errorBuffer(buffer_size: u16) -> *mut Error;
+    pub fn pl2b_errPrintf(
         error: *mut Error,
         error_code: u16,
         source_info: SourceInfo,
@@ -27,6 +14,16 @@ extern "C" {
         fmt: *const c_char,
         ...
     );
-    fn pl2b_dropError(error: *mut Error);
-    fn pl2b_isError(error: *mut Error) -> bool;
+    pub(crate) fn pl2b_dropError(error: *mut Error);
+    pub(crate) fn pl2b_isError(error: *mut Error) -> bool;
+    pub(crate) fn pl2b_argsLen(cmd: *const Command) -> u16;
+    pub(crate) fn pl2b_parse(
+        source: *mut c_char,
+        parse_bufsiz: u16,
+        error: *mut Error
+    ) -> Program;
+    pub(crate) fn pl2b_dropProgram(program: *mut Program);
+    pub(crate) fn pl2b_debugPrintProgram(program: *const Program);
+    pub(crate) fn pl2b_run(program: *const Program, err: *mut Error);
 }
+
