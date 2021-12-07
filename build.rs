@@ -8,5 +8,6 @@ fn main() {
         .join("pl2b.c");
     cc::Build::new()
         .file(source_path)
+        .flag_if_supported("/utf-8")
         .compile("pl2");
 }

@@ -2,12 +2,27 @@
 
 #include <assert.h>
 #include <ctype.h>
-#include <dlfcn.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+
+#ifdef _MSC_VER
+#include <windows.h>
+#define RTLD_NOW 0
+void *dlopen(const char *libName, int mode) {
+return LoadLibrary(libName);
+}
+void *dlsym(void *handle, const char *symbol) {
+return GetProcAddress(handle, symbol);
+}
+const char *dlerror(void) {
+return "Load library error";
+}
+#else
+#include <dlfcn.h>
+#endif
 
 /*** ----------------- Implementation of versioning ---------------- ***/
 
@@ -290,10 +305,11 @@ pl2b_Program pl2b_parse(char *source,
                         uint16_t parseBufferSize,
                         pl2b_Error *error) {
   ParseContext *context = createParseContext(source, parseBufferSize);
+  pl2b_SourceInfo dummySourceInfo;
   if (context == NULL) {
     pl2b_errPrintf(error,
                    PL2B_ERR_MALLOC,
-                   (pl2b_SourceInfo) {},
+                   dummySourceInfo,
                    NULL,
                    "allocation failure");
     return (pl2b_Program) { NULL };
