@@ -196,7 +196,7 @@ impl<'p> Command<'p> {
     }
 
     pub fn part(&self, idx: usize) -> CmdPart<'p> {
-        assert!(idx < self.size());
+        assert!(idx <= self.size());
         unsafe {
             CmdPart {
                 inner: *addr_of!((*self.inner).command).add(idx),
